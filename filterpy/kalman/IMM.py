@@ -5,9 +5,11 @@ Created on Mon Aug  6 07:53:34 2018
 
 @author: rlabbe
 """
-from __future__ import (absolute_import, division)
+from __future__ import absolute_import, division
+
 import numpy as np
-from numpy import dot, asarray, zeros, outer
+from numpy import asarray, dot, outer, zeros
+
 from filterpy.common import pretty_str
 
 
@@ -129,19 +131,30 @@ class IMMEstimator(object):
     https://github.com/rlabbe/Kalman-and-Bayesian-Filters-in-Python
     """
 
-    def __init__(self, filters, mu, M):
+    def __init__(self, filters, mu, M, state_conversion_functions=None,
+                 state_conversion_functions_inv=None):
         if len(filters) < 2:
             raise ValueError('filters must contain at least two filters')
 
         self.filters = filters
         self.mu = asarray(mu) / np.sum(mu)
         self.M = M
+        
 
-        x_shape = filters[0].x.shape
-        for f in filters:
-            if x_shape != f.x.shape:
-                raise ValueError(
-                    'All filters must have the same state dimension')
+        # TODO: check that `state_conversion_functions` are specified!
+        # x_shape = filters[0].x.shape
+        # for f in filters:
+        #     if x_shape != f.x.shape:
+        #         raise ValueError(
+        #             'All filters must have the same state dimension')
+
+        if state_conversion_functions is None:
+            state_conversion_functions = [lambda x: x for f in filters]
+        self.state_conversion_functions = state_conversion_functions
+
+        if state_conversion_functions_inv is None:
+            state_conversion_functions_inv = [lambda x: x for f in filters]
+        self.state_conversion_functions_inv = state_conversion_functions_inv
 
         self.x = zeros(filters[0].x.shape)
         self.P = zeros(filters[0].P.shape)
@@ -200,23 +213,23 @@ class IMMEstimator(object):
 
         # compute mixed initial conditions
         xs, Ps = [], []
-        for i, (f, w) in enumerate(zip(self.filters, self.omega.T)):
+        for f, w in zip(self.filters, self.omega.T):
             x = zeros(self.x.shape)
-            for kf, wj in zip(self.filters, w):
-                x += kf.x * wj
+            for i, (kf, wj) in enumerate(zip(self.filters, w)):
+                x += self.state_conversion_functions[i](kf.x) * wj
             xs.append(x)
 
             P = zeros(self.P.shape)
-            for kf, wj in zip(self.filters, w):
-                y = kf.x - x
-                P += wj * (outer(y, y) + kf.P)
+            for i, (kf, wj) in enumerate(zip(self.filters, w)):
+                y = self.state_conversion_functions[i](kf.x) - x
+                P += wj * (outer(y, y) + self.state_conversion_functions[i](kf.P))
             Ps.append(P)
 
         #  compute each filter's prior using the mixed initial conditions
         for i, f in enumerate(self.filters):
             # propagate using the mixed state estimate and covariance
-            f.x = xs[i].copy()
-            f.P = Ps[i].copy()
+            f.x = self.state_conversion_functions_inv[i](xs[i].copy())
+            f.P = self.state_conversion_functions_inv[i](Ps[i].copy())
             f.predict(u)
 
         # compute mixed IMM state and covariance and save posterior estimate
@@ -230,13 +243,13 @@ class IMMEstimator(object):
         the the mode probability self.mu to weight the estimates.
         """
         self.x.fill(0)
-        for f, mu in zip(self.filters, self.mu):
-            self.x += f.x * mu
+        for i, (f, mu) in enumerate(zip(self.filters, self.mu)):
+            self.x += self.state_conversion_functions[i](f.x) * mu
 
         self.P.fill(0)
-        for f, mu in zip(self.filters, self.mu):
-            y = f.x - self.x
-            self.P += mu * (outer(y, y) + f.P)
+        for i, (f, mu) in enumerate(zip(self.filters, self.mu)):
+            y = self.state_conversion_functions[i](f.x) - self.x
+            self.P += mu * (outer(y, y) + self.state_conversion_functions[i](f.P))
 
     def _compute_mixing_probabilities(self):
         """

@@ -17,18 +17,17 @@ for more information.
 
 
 
-from __future__ import (absolute_import, division, print_function,
-                        unicode_literals)
+from __future__ import absolute_import, division, print_function, unicode_literals
 
-from math import sin, cos, radians
-import numpy.random as random
+from math import cos, radians, sin
+
+import matplotlib.pyplot as plt
 import numpy as np
 from numpy import array
 from numpy.random import randn
-import matplotlib.pyplot as plt
-from filterpy.kalman import IMMEstimator, KalmanFilter
-from filterpy.common import Q_discrete_white_noise, Saver
 
+from filterpy.common import Q_discrete_white_noise, Saver, kinematic_kf
+from filterpy.kalman import IMMEstimator, KalmanFilter
 
 DO_PLOT = False
 
@@ -270,29 +269,69 @@ def test_imm():
         plt.plot(xs[:, 0])'''
 
 
-def test_misshapen():
+def constvel2constacc(x):
+    print(x)
+    is_matrix = x.shape == (4, 4)
+    if is_matrix:
+        P = np.zeros((6, 6))
+        P[:2, :2] = x[:2, :2]
+        P[2, 2] = 100
+        P[3:5, 3:5] = x[3:, 3:]
+        P[5, 5] = 100
+        return P
+    else:
+        x = x.flatten()
+        s = np.zeros(6)
+        s[:2] = x[:2]
+        s[3:5] = x[2:]
+        return s.reshape((6, 1))
+
+
+def constacc2constvel(x):
+    print(x)
+    is_matrix = x.shape == (6, 6)
+    if is_matrix:
+        P = np.zeros((4, 4))
+        P[:2, :2] = x[:2, :2]
+        P[2:, 2:] = x[3:5, 3:5]
+        return P
+    else:
+        x = x.flatten()
+        s = np.zeros(4)
+        s[:2] = x[:2]
+        s[2:] = x[3:5]
+        return s.reshape((4, 1))
+
+
+def test_with_multiple_dimensions():
 
     """Ensure we get a ValueError if the filter banks are not designed
     properly
     """
 
-    ca = KalmanFilter(3, 1)
-    cv = KalmanFilter(2, 1)
+    ca = kinematic_kf(dim=2, order=2, dim_z=2)
+    cv = kinematic_kf(dim=2, order=1, dim_z=2)
+    
 
     trans = np.array([[0.97, 0.03],
                       [0.03, 0.97]])
 
-    try:
-        IMMEstimator([ca, cv], (0.5, 0.5), trans)
-        assert "IMM should raise ValueError on filter banks with filters of different sizes"
-    except ValueError:
-        pass
+    do_nothing_funct = lambda x: x
 
-    try:
-        IMMEstimator([], (0.5, 0.5), trans)
-        assert "Should raise ValueError on empty bank"
-    except ValueError:
-        pass
+    state_conversion_functions = [do_nothing_funct, constvel2constacc]
+    state_conversion_functions_inv = [do_nothing_funct, constacc2constvel]
+
+    imm = IMMEstimator([ca, cv], (0.5, 0.5), trans,
+        state_conversion_functions=state_conversion_functions,
+            state_conversion_functions_inv=state_conversion_functions_inv)
+
+    initial_state = imm.x.copy()
+
+    # do something
+    imm.update(np.array([42.42, 43.44]))
+    imm.predict()
+
+    assert (imm.x != initial_state).any()
 
 
 
