@@ -13,6 +13,40 @@ from numpy import asarray, dot, outer, zeros
 from filterpy.common import pretty_str
 
 
+def constvel2constacc(x, dim: int):
+    num_vars_per_dim_constvel = 2
+    num_vars_per_dim_constacc = 3
+    
+    num_state_attributes_constvel = num_vars_per_dim_constvel*dim
+    num_state_attributes_constacc = num_vars_per_dim_constacc*dim
+
+    is_cov_matrix = x.shape == (num_state_attributes_constvel, num_state_attributes_constvel)
+    if is_cov_matrix:
+        P = np.zeros((num_state_attributes_constacc, num_state_attributes_constacc))
+
+        for i in range(dim):
+            idx_input = i*num_vars_per_dim_constvel
+            idx_output = i*num_vars_per_dim_constacc
+            P[idx_output:(idx_output+num_vars_per_dim_constvel), idx_output:(idx_output+num_vars_per_dim_constvel)] = \
+                x[idx_input:(idx_input+num_vars_per_dim_constvel), idx_input:(idx_input+num_vars_per_dim_constvel)]
+            P[idx_output + num_vars_per_dim_constacc - 1, idx_output + num_vars_per_dim_constacc - 1] = 100
+        return P
+    else:
+        x = x.flatten()
+        s = np.zeros(num_state_attributes_constacc, dtype=float)
+        for i in range(dim):
+            idx_input = i*num_vars_per_dim_constvel
+            idx_output = i*num_vars_per_dim_constacc
+            s[idx_output:(idx_output+num_vars_per_dim_constvel)] = x[idx_input:(idx_input+num_vars_per_dim_constvel)]
+            s[idx_output + num_vars_per_dim_constacc - 1] = 0.0
+        return s.reshape((num_state_attributes_constacc, 1))
+
+
+
+def convert_models(a, source_model: str, target_model: str, dim: int):
+    pass
+
+
 class IMMEstimator(object):
     """ Implements an Interacting Multiple-Model (IMM) estimator.
 
